@@ -267,21 +267,24 @@ def collect_video_ids(
     max_pages: int | None,
     max_count: int | None,
     last_max_id: str | None = None,
-) -> tuple[list[str], str | None]:
+) -> tuple[list[str], str | None, bool]:
     """
     フォロー新着フィードから動画IDをページネーションしながら収集する。
 
     last_max_id が指定された場合、そのアクティビティIDに到達したら取得を停止する。
     アクティビティIDはタイムスタンプ先頭のため、これが前回実行済みの境界になる。
 
-    戻り値: (video_ids, new_max_id)
-      new_max_id: 今回取得した中で最も新しいアクティビティID（次回の停止点として使う）
+    戻り値: (video_ids, new_max_id, completed)
+      new_max_id: 今回取得した中で最も新しいアクティビティID
+      completed:  前回停止点IDへの到達またはフィード末尾に達した場合 True。
+                  ページ上限・件数上限で打ち切られた場合 False（取りこぼしあり）。
     """
     video_ids: list[str] = []
     cursor: str | None = None
     new_max_id: str | None = None  # 1ページ目の先頭アクティビティID
     page = 0
     stopped_early = False
+    reached_end = False
 
     while True:
         if max_pages is not None and page >= max_pages:
@@ -299,6 +302,7 @@ def collect_video_ids(
         activities = data.get("activities", [])
         if not activities:
             print("(終端)")
+            reached_end = True
             break
 
         page_count = 0
@@ -328,14 +332,16 @@ def collect_video_ids(
         cursor = data.get("nextCursor")
         if not cursor:
             print("  [フィード] 最終ページに到達しました")
+            reached_end = True
             break
 
         page += 1
         time.sleep(REQUEST_INTERVAL)
 
+    completed = stopped_early or reached_end
     if max_count is not None:
         video_ids = video_ids[:max_count]
-    return video_ids, new_max_id
+    return video_ids, new_max_id, completed
 
 
 # ============================================================
@@ -466,10 +472,13 @@ def cmd_run(args):
     print(f"\n[STEP 1] フォロー新着取得中（pages={args.pages}, count={args.count}）...")
     if stop_id:
         print(f"  ※ アクティビティID={stop_id} に到達したら停止")
-    video_ids, new_max_id = collect_video_ids(
+    video_ids, new_max_id, collection_complete = collect_video_ids(
         http_sess, args.pages, args.count, last_max_id=stop_id
     )
     print(f"  取得した動画ID: {len(video_ids)}件（フォロー新着「すべて」から動画コンテンツのみ抽出）")
+    if not collection_complete and stop_id is not None:
+        print(f"  [WARN] ページ/件数上限で停止しました。前回停止点より古い新着が取りこぼされている可能性があります。")
+        print(f"         次回実行時は同じ停止点から再取得し、取りこぼしを補完します。")
 
     # 念のため登録済みIDでも二重チェック（sinceId をスキップした場合などの安全弁）
     seen: set[str] = set()
@@ -491,8 +500,8 @@ def cmd_run(args):
 
     if not new_ids:
         print("\n[INFO] 新たに登録する動画はありません。")
-        # new_max_id を更新して保存（次回の停止点として使う）
-        if new_max_id:
+        # 停止点を更新: 完了した場合、または --ignore-since で前回停止点なしの場合
+        if new_max_id and (collection_complete or stop_id is None):
             state["last_max_id"] = new_max_id
         save_state(state)
         return
@@ -522,7 +531,8 @@ def cmd_run(args):
     # 実行履歴の登録数を更新してから保存
     state["run_history"][-1]["registered"] = success_count
     state["run_history"][-1]["skipped"]    = skipped + len(fail_ids)
-    if new_max_id:
+    # 停止点を更新: 完了した場合、または --ignore-since で前回停止点なしの場合
+    if new_max_id and (collection_complete or stop_id is None):
         state["last_max_id"] = new_max_id
     save_state(state)
 
@@ -531,8 +541,11 @@ def cmd_run(args):
     if fail_ids:
         print(f"  登録失敗: {len(fail_ids)}件 → {', '.join(fail_ids)}")
     print(f"  累計登録済みID数: {len(added_ids)}件")
-    if new_max_id:
-        print(f"  次回の停止点ID: {new_max_id}")
+    if collection_complete or stop_id is None:
+        if new_max_id:
+            print(f"  次回の停止点ID: {new_max_id}")
+    elif stop_id:
+        print(f"  次回の停止点ID: {stop_id}（据え置き・取りこぼし補完のため）")
 
 
 def main():
