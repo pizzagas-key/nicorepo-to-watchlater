@@ -235,11 +235,11 @@ crontab -e
 ### 6-2. 定期実行の設定例
 
 ```cron
-# 毎朝 8:00 にフォロー新着1ページ分を処理
-0 8 * * * /usr/bin/python3 /home/yourname/nicorepo/nicorepo_to_watchlater.py --pages 1 --master-password-file /home/yourname/.nico_master >> /home/yourname/nicorepo/nicorepo.log 2>&1
+# 毎朝 8:00 にフォロー新着10ページ分を処理
+0 8 * * * /usr/bin/python3 /home/yourname/nicorepo/nicorepo_to_watchlater.py --pages 10 --master-password-file /home/yourname/.nico_master >> /home/yourname/nicorepo/nicorepo.log 2>&1
 
 # 6時間ごとに実行したい場合
-0 */6 * * * /usr/bin/python3 /home/yourname/nicorepo/nicorepo_to_watchlater.py --pages 1 --master-password-file /home/yourname/.nico_master >> /home/yourname/nicorepo/nicorepo.log 2>&1
+0 */6 * * * /usr/bin/python3 /home/yourname/nicorepo/nicorepo_to_watchlater.py --pages 10 --master-password-file /home/yourname/.nico_master >> /home/yourname/nicorepo/nicorepo.log 2>&1
 ```
 
 `yourname` は実際のユーザー名に置き換えてください。確認方法：
